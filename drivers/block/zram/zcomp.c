@@ -120,6 +120,31 @@ void zcomp_stream_put(struct zcomp *comp)
 	local_unlock(&comp->stream->lock);
 }
 
+static inline u32 ilog2_w(u64 n)
+{
+	return ilog2(n * n * n * n);
+}
+
+static inline u32 shannon_entropy(const u8 *src)
+{
+	u32 entropy_sum = 0;
+	u32 p, p_base, sz_base;
+	u32 i;
+
+	sz_base = ilog2_w(PAGE_SIZE);
+	for (i = 0; i < PAGE_SIZE; i += 16) {
+		p = (src[i] << 24) |
+			(src[i + 1] << 16) |
+			(src[i + 2] << 8  | src[i + 3];
+		p = src[i];
+		p_base = ilog2_w(p);
+		entropy_sum += p * (sz_base - p_base);
+	}
+
+	entropy_sum /= 256;
+	return entropy_sum;
+}
+
 int zcomp_compress(struct zcomp_strm *zstrm,
 		const void *src, unsigned int *dst_len)
 {
@@ -137,6 +162,32 @@ int zcomp_compress(struct zcomp_strm *zstrm,
 	 * the dst buffer, zram_drv will take care of the fact that
 	 * compressed buffer is too big.
 	 */
+#if 0
+	int rc = 0;
+	u32 entropy;
+	s64 t, compress_time, entropy_time;
+	*dst_len = PAGE_SIZE * 2;
+
+	t = ktime_get().tv64;
+	rc = crypto_comp_compress(zstrm->tfm,
+		src, PAGE_SIZE,
+		zstrm->buffer, dst_len);
+	compress_time = ktime_get().tv64 - t;
+
+	t = ktime_get().tv64;
+	entropy = shannon_entropy((u8 *)src);
+	entropy_time = ktime_get().tv64 - t;
+
+	printk("> zram: %lld | %lld | %d | %d\n", compress_time, entropy_time, entropy, *dst_len);
+	return rc;
+#endif
+
+	u32 entropy = shannon_entropy((u8 *)src);
+	if (entropy > 1400) {
+		*dst_len = PAGE_SIZE;
+		return 0;
+	}
+
 	*dst_len = PAGE_SIZE * 2;
 
 	return crypto_comp_compress(zstrm->tfm,
